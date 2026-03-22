@@ -1130,10 +1130,12 @@ function togglePlayPause() {
 // DOWNLOAD HELPERS
 // ══════════════════════════════════════
 function mergeAudioBuffers(buffers) {
-  const sampleRate = buffers[0].sampleRate;
+  const sampleRate  = buffers[0].sampleRate;
   const numChannels = buffers[0].numberOfChannels;
   const totalLength = buffers.reduce((n, b) => n + b.length, 0);
-  const merged = new AudioContext({ sampleRate }).createBuffer(numChannels, totalLength, sampleRate);
+  // Reuse the global audioCtx so we don't spin up a throwaway AudioContext
+  const ctx    = audioCtx || new AudioContext({ sampleRate });
+  const merged = ctx.createBuffer(numChannels, totalLength, sampleRate);
   let offset = 0;
   for (const buf of buffers) {
     for (let ch = 0; ch < numChannels; ch++) {

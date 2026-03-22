@@ -13,7 +13,7 @@ A browser-based TTS podcast player powered by [Kokoro-82M](https://huggingface.c
 4. **Drag and drop a `.md` script file** onto the page to load your podcast script
 5. Click ⚡ on any section to generate audio, or use **⚡ Generate All** to queue everything
 
-Generated audio can be downloaded as **WAV** or **MP4** from the player bar.
+Generated audio can be downloaded as **WAV** or **MP3** from the player bar.
 
 ---
 
