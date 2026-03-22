@@ -1,0 +1,1156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>The Qwen Revolution — AI Podcast Player</title>
+
+<!-- Kokoro TTS via jsdelivr -->
+<script type="module">
+import { KokoroTTS, TextSplitterStream } from "https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/+esm";
+window.KokoroTTS = KokoroTTS;
+window.TextSplitterStream = TextSplitterStream;
+window.dispatchEvent(new Event("kokoro-ready"));
+</script>
+
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;500&family=Source+Sans+3:wght@300;400;600&display=swap');
+
+  :root {
+    --bg-deep: #0c0a09;
+    --bg-panel: #1c1917;
+    --bg-card: #292524;
+    --bg-hover: #3f3a36;
+    --amber: #f59e0b;
+    --amber-dim: #b45309;
+    --amber-glow: rgba(245, 158, 11, 0.15);
+    --text-primary: #fafaf9;
+    --text-secondary: #a8a29e;
+    --text-muted: #78716c;
+    --red: #ef4444;
+    --green: #22c55e;
+    --radius: 12px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg-deep);
+    color: var(--text-primary);
+    font-family: 'Source Sans 3', sans-serif;
+    font-weight: 300;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Noise texture overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  .container {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 40px 24px 120px;
+  }
+
+  /* ── HEADER ── */
+  .header {
+    text-align: center;
+    margin-bottom: 48px;
+    position: relative;
+  }
+  .header::after {
+    content: '';
+    display: block;
+    width: 80px;
+    height: 2px;
+    background: var(--amber);
+    margin: 24px auto 0;
+    box-shadow: 0 0 12px var(--amber-glow);
+  }
+  .header .kicker {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--amber);
+    margin-bottom: 12px;
+  }
+  .header h1 {
+    font-family: 'Playfair Display', serif;
+    font-size: clamp(28px, 5vw, 44px);
+    font-weight: 700;
+    line-height: 1.15;
+    letter-spacing: -0.5px;
+  }
+  .header .subtitle {
+    font-size: 16px;
+    color: var(--text-secondary);
+    margin-top: 8px;
+    font-style: italic;
+    font-family: 'Playfair Display', serif;
+  }
+
+  /* ── STATUS PANEL ── */
+  .status-panel {
+    background: var(--bg-panel);
+    border: 1px solid #292524;
+    border-radius: var(--radius);
+    padding: 20px 24px;
+    margin-bottom: 24px;
+  }
+  .status-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .status-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    flex-shrink: 0;
+    transition: background 0.3s;
+  }
+  .status-dot.loading { background: var(--amber); animation: pulse 1.2s infinite; }
+  .status-dot.ready { background: var(--green); }
+  .status-dot.error { background: var(--red); }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+  .status-text {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--text-secondary);
+    flex: 1;
+  }
+  .progress-bar-outer {
+    width: 100%;
+    height: 4px;
+    background: var(--bg-card);
+    border-radius: 2px;
+    margin-top: 12px;
+    overflow: hidden;
+    display: none;
+  }
+  .progress-bar-outer.visible { display: block; }
+  .progress-bar-inner {
+    height: 100%;
+    background: var(--amber);
+    border-radius: 2px;
+    width: 0%;
+    transition: width 0.3s ease;
+  }
+
+  /* ── CONTROLS ── */
+  .controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr auto;
+    gap: 12px;
+    margin-bottom: 24px;
+  }
+  @media (max-width: 560px) {
+    .controls { grid-template-columns: 1fr; }
+  }
+
+  .control-group label {
+    display: block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 6px;
+  }
+  .control-group select,
+  .control-group input[type="range"] {
+    width: 100%;
+    background: var(--bg-card);
+    border: 1px solid #3f3a36;
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-family: 'Source Sans 3', sans-serif;
+    font-size: 14px;
+    padding: 10px 12px;
+    outline: none;
+    transition: border-color 0.2s;
+    appearance: none;
+    -webkit-appearance: none;
+  }
+  .control-group select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23a8a29e' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 32px;
+    cursor: pointer;
+  }
+  .control-group select:focus,
+  .control-group input:focus {
+    border-color: var(--amber);
+  }
+  .speed-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    color: var(--amber);
+    text-align: center;
+    margin-top: 4px;
+  }
+
+  .btn-load {
+    align-self: end;
+    background: var(--amber);
+    color: var(--bg-deep);
+    border: none;
+    border-radius: 8px;
+    padding: 10px 24px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    font-weight: 500;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+  .btn-load:hover { background: #fbbf24; transform: translateY(-1px); }
+  .btn-load:active { transform: translateY(0); }
+  .btn-load:disabled {
+    background: var(--bg-hover);
+    color: var(--text-muted);
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  /* ── SECTION LIST ── */
+  .section-list-header {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 12px;
+  }
+
+  .section-item {
+    background: var(--bg-panel);
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+  .section-item:hover {
+    background: var(--bg-card);
+    border-color: #3f3a36;
+  }
+  .section-item.active {
+    border-color: var(--amber);
+    background: var(--bg-card);
+  }
+  .section-item.active::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+    background: var(--amber);
+  }
+  .section-item.generated { cursor: pointer; }
+  .section-item.generated .section-status { color: var(--green); }
+  .section-item.generating .section-status { color: var(--amber); animation: pulse 1s infinite; }
+  .section-item.error .section-status { color: var(--red); }
+
+  .section-num {
+    font-family: 'Playfair Display', serif;
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--text-muted);
+    min-width: 32px;
+    text-align: center;
+  }
+  .section-item.active .section-num,
+  .section-item.generated .section-num { color: var(--amber); }
+
+  .section-info { flex: 1; min-width: 0; }
+  .section-title {
+    font-family: 'Playfair Display', serif;
+    font-size: 16px;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .section-meta {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+
+  .section-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .btn-icon {
+    width: 36px; height: 36px;
+    border-radius: 50%;
+    border: 1px solid #3f3a36;
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 16px;
+  }
+  .btn-icon:hover {
+    border-color: var(--amber);
+    color: var(--amber);
+    background: var(--amber-glow);
+  }
+  .btn-icon:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+  }
+
+  .section-status {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+
+  /* ── PLAYER BAR ── */
+  .player-bar {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    background: var(--bg-panel);
+    border-top: 1px solid #292524;
+    padding: 12px 24px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    z-index: 100;
+    transform: translateY(100%);
+    transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .player-bar.visible { transform: translateY(0); }
+
+  .player-btn {
+    width: 44px; height: 44px;
+    border-radius: 50%;
+    border: 2px solid var(--amber);
+    background: transparent;
+    color: var(--amber);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 20px;
+    flex-shrink: 0;
+    transition: all 0.2s;
+  }
+  .player-btn:hover { background: var(--amber-glow); }
+
+  .player-info {
+    flex: 1;
+    min-width: 0;
+  }
+  .player-title {
+    font-family: 'Playfair Display', serif;
+    font-size: 14px;
+    font-weight: 700;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .player-sub {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-muted);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  .player-downloads {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .player-download {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--amber);
+    background: none;
+    border: 1px solid var(--amber-dim);
+    border-radius: 6px;
+    padding: 6px 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+  .player-download:hover { background: var(--amber-glow); }
+  .player-download:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .section-list-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .btn-generate-all {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--bg-deep);
+    background: var(--amber-dim);
+    border: none;
+    border-radius: 6px;
+    padding: 6px 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+  .btn-generate-all:hover:not(:disabled) { background: var(--amber); }
+  .btn-generate-all:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* ── DRAG OVERLAY ── */
+  .drop-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(12, 10, 9, 0.85);
+    border: 3px dashed var(--amber);
+    border-radius: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 10000;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s;
+  }
+  .drop-overlay.active {
+    opacity: 1;
+    pointer-events: all;
+  }
+  .drop-overlay-icon { font-size: 48px; margin-bottom: 16px; }
+  .drop-overlay-text {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--amber);
+  }
+
+  /* ── ARCHITECTURE NOTES ── */
+  .arch-notes {
+    margin-top: 48px;
+    padding: 24px;
+    background: var(--bg-panel);
+    border: 1px solid #292524;
+    border-radius: var(--radius);
+  }
+  .arch-notes h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--amber);
+    margin-bottom: 16px;
+  }
+  .arch-notes p, .arch-notes li {
+    font-size: 14px;
+    color: var(--text-secondary);
+    line-height: 1.7;
+    margin-bottom: 8px;
+  }
+  .arch-notes code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    background: var(--bg-card);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: var(--amber);
+  }
+  .arch-notes ul {
+    list-style: none;
+    padding-left: 0;
+  }
+  .arch-notes li::before {
+    content: '→ ';
+    color: var(--amber-dim);
+  }
+</style>
+</head>
+
+<body>
+<div class="drop-overlay" id="dropOverlay">
+  <div class="drop-overlay-icon">📄</div>
+  <div class="drop-overlay-text">Drop markdown to load script</div>
+</div>
+<div class="container">
+  <!-- Header -->
+  <div class="header">
+    <div class="kicker" id="episodeKicker">Episode 47 · March 2026</div>
+    <h1 id="episodeTitle">The Qwen Revolution</h1>
+    <div class="subtitle" id="episodeSubtitle">From Alibaba's Lab to Your Laptop — A Podcast on Local LLM Coding Agents</div>
+  </div>
+
+  <!-- Status Panel -->
+  <div class="status-panel">
+    <div class="status-row">
+      <div class="status-dot" id="statusDot"></div>
+      <div class="status-text" id="statusText">Waiting for Kokoro TTS library to load…</div>
+    </div>
+    <div class="progress-bar-outer" id="progressBar">
+      <div class="progress-bar-inner" id="progressInner"></div>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <div class="control-group">
+      <label>Voice</label>
+      <select id="voiceSelect">
+        <option value="af_heart">Heart (American F)</option>
+        <option value="af_sky">Sky (American F)</option>
+        <option value="af_nicole">Nicole (American F)</option>
+        <option value="af_bella" selected>Bella (American F)</option>
+        <option value="af_sarah">Sarah (American F)</option>
+        <option value="am_adam">Adam (American M)</option>
+        <option value="am_michael">Michael (American M)</option>
+        <option value="am_fenrir">Fenrir (American M)</option>
+        <option value="bf_emma">Emma (British F)</option>
+        <option value="bf_isabella">Isabella (British F)</option>
+        <option value="bm_george">George (British M)</option>
+        <option value="bm_lewis">Lewis (British M)</option>
+      </select>
+    </div>
+    <div class="control-group">
+      <label>Speed</label>
+      <input type="range" id="speedSlider" min="0.5" max="2.0" step="0.1" value="1.0">
+      <div class="speed-value" id="speedValue">1.0×</div>
+    </div>
+    <button class="btn-load" id="loadBtn" disabled>Load Model</button>
+  </div>
+
+  <!-- Section List -->
+  <div class="section-list-header-row">
+    <div class="section-list-header" style="margin-bottom:0">Script Sections</div>
+    <button class="btn-generate-all" id="generateAllBtn" disabled>⚡ Generate All</button>
+  </div>
+  <div id="sectionList"></div>
+
+  <!-- Architecture Notes -->
+  <div class="arch-notes">
+    <h2>Architecture Notes</h2>
+    <p>This player runs <strong>Kokoro TTS</strong> — an 82M parameter neural text-to-speech model — <em>entirely in your browser</em>. No servers, no API keys, no data leaves your device.</p>
+    <ul>
+      <li><code>kokoro-js</code> loads the ONNX model from HuggingFace (~150MB, cached after first load)</li>
+      <li>Inference runs via <strong>WebGPU</strong> (Chrome 113+) with automatic <strong>WebAssembly</strong> fallback</li>
+      <li>Text is chunked into sentences and streamed — audio plays as each chunk finishes</li>
+      <li>Generated audio is WAV PCM at 24kHz — download to get broadcast-quality files</li>
+      <li>Ranked just behind ElevenLabs in TTS Arena quality benchmarks</li>
+    </ul>
+    <p style="margin-top: 12px; color: var(--text-muted); font-size: 12px;">
+      Requires a modern browser (Chrome/Edge recommended for WebGPU). First load downloads ~150MB of model weights. Subsequent visits use cached weights.
+    </p>
+  </div>
+</div>
+
+<!-- Player Bar -->
+<div class="player-bar" id="playerBar">
+  <button class="player-btn" id="playPauseBtn" title="Play/Pause">▶</button>
+  <div class="player-info">
+    <div class="player-title" id="playerTitle">—</div>
+    <div class="player-sub" id="playerSub">Ready</div>
+  </div>
+  <div class="player-downloads">
+    <button class="player-download" id="downloadBtn" title="Download WAV">↓ WAV</button>
+    <button class="player-download" id="downloadMp4Btn" title="Download MP4">↓ MP4</button>
+  </div>
+</div>
+
+<script type="module">
+// ══════════════════════════════════════
+// PODCAST SCRIPT — sectioned for TTS
+// ══════════════════════════════════════
+let SECTIONS = [
+  {
+    id: "intro",
+    title: "Introduction",
+    text: `Welcome back to another episode. Today we're going deep on what might be the most important open-weight model family in the world right now: the Qwen series from Alibaba Cloud. We're going to trace how it got here, why Qwen 3.5 specifically is causing so much excitement, and then get practical. We'll cover running it locally with Ollama, including some nasty bugs you need to know about, how to wire it into Claude Code and the Pi coding agent, and who else is competing for the "best local model on your Mac" crown. Let's get into it.`
+  },
+  {
+    id: "act1-origins",
+    title: "Act 1 — The Rise of Qwen",
+    text: `The story starts in April 2023. Alibaba launches Tongyi Qianwen, which roughly translates to "understanding a thousand questions," under an internal beta. It was a proprietary chatbot, and the Western AI world wasn't paying much attention. By September 2023, Alibaba opens it to the public after regulatory clearance. Then in December, they start releasing model weights. The 72 billion and 1.8 billion parameter versions go up for download. The architecture was based on Meta's LLaMA design with decoder-only transformers, RMSNorm, SwiGLU activations, and rotary positional embeddings. Calling Qwen "open source" is generous. The training code and data were never released. But the weights were out there, and the community ran with them.`
+  },
+  {
+    id: "act1-evolution",
+    title: "Act 1 — From Qwen 2 to Qwen 3",
+    text: `Qwen 1.5 arrived in early 2024 as a refinement pass. June 2024 brought Qwen 2, with Grouped Query Attention and better long-context handling. Benchmarks ranked the 72B instruct variant right behind GPT-4o and Claude 3.5 Sonnet. September 2024: Qwen 2.5 drops with specialized variants. Qwen 2.5 Math, Qwen 2.5 VL with vision transformers, and Qwen 2.5 Coder, which became a darling of the local coding community. Then April 28, 2025: Qwen 3 arrives with dense models from 0.6B to 32B, and MoE models at 30B and 235B. All Apache 2.0. Trained on 36 trillion tokens across 119 languages. The key innovation: unified thinking mode and non-thinking mode in the same model.`
+  },
+  {
+    id: "act2-flagship",
+    title: "Act 2 — Qwen 3.5 Flagship",
+    text: `February 16, 2026. The Qwen team drops Qwen 3.5, and it's immediately clear this isn't just an incremental update. The flagship is the 397B-A17B: 397 billion total parameters with 17 billion active per forward pass. What makes it architecturally distinctive is the Gated DeltaNet hybrid attention mechanism. It alternates between linear attention and traditional full softmax attention in a 3-to-1 ratio. The linear blocks maintain constant memory complexity, while the full attention blocks preserve precision for complex reasoning. The practical result? A million-token context window at reasonable compute costs. And dramatically faster inference: benchmarks showed responses six times faster than Claude Sonnet 4.6 while maintaining competitive quality.`
+  },
+  {
+    id: "act2-medium",
+    title: "Act 2 — The Medium and Small Series",
+    text: `Two weeks after the flagship, the medium series ships. Four models: Flash, 35B-A3B, 122B-A10B, and 27B. The 35B-A3B is the standout. 35 billion total parameters, only 3 billion active per token. It runs on a single RTX 5090, a 32GB Mac, or a 24GB GPU at Q4 quantization. Despite its compact footprint, it outperforms the previous generation's 235B model and matches GPT-5 mini on SWE-bench. Then on March 2, the small series completes the lineup. 0.8B, 2B, 4B, and 9B. All natively multimodal. The 9B beats GPT-5 Nano on MMMU-Pro by thirteen points and fits in 6.6 gigabytes. These aren't distilled versions crammed into smaller architectures. They're purpose-built with knowledge distillation from the larger teachers and scaled reinforcement learning.`
+  },
+  {
+    id: "act3-bugs",
+    title: "Act 3 — Ollama Bugs",
+    text: `So you've heard the pitch. Now let's talk about what happens when you try to run it through Ollama. There have been issues. The most critical: tool calling was completely broken on launch. A detailed bug report identified six concrete mismatches between what Ollama sends and what the model was trained on. When an assistant message has thinking content plus tool calls but no text, the renderer never emits a closing think tag. The tool call gets rendered inside an unclosed think block, corrupting every subsequent turn. Beyond tool calling, the Go runner's sampler silently discarded repeat penalty, presence penalty, and frequency penalty. The model card recommends a presence penalty of 1.5, and Ollama was just ignoring it. The result: infinite chain-of-thought loops.`
+  },
+  {
+    id: "act3-fixes",
+    title: "Act 3 — Fixes and Workarounds",
+    text: `What should you do? First: update Ollama to version 0.17.7 or newer. Version 0.17.3 fixed tool call parsing during thinking mode. 0.17.4 added support for the Gated DeltaNet architecture. 0.17.5 fixed GPU/CPU split crashes and missing presence penalty. 0.17.6 fixed remaining parsing issues. Second: if you need rock-solid tool calling, consider llama-server directly with the Jinja flag enabled. Third: use the Unsloth GGUF quantizations released March 5 with improved tool calling. Fourth: if the model prints tool calls as text instead of executing them, make sure you're using official Ollama library models, not third-party GGUF files.`
+  },
+  {
+    id: "act4-claude",
+    title: "Act 4 — Claude Code with Local Models",
+    text: `Now let's talk about running Claude Code powered by a local Qwen 3.5 model. No API keys, no cloud, no bills. In January 2026, Ollama added support for the Anthropic Messages API. Claude Code thinks it's talking to Anthropic's servers, but it's actually talking to a quantized model on localhost. The setup: pull the 35B-A3B model, set three environment variables, and launch Claude Code pointing at your model. For Apple Silicon, an alternative path uses llama-server directly for fine-grained control. What works well: scaffolding features, generating boilerplate, writing tests, fixing bugs. What's weaker: massive architectural decisions across twenty-plus files and complex legacy refactoring. One developer described it as having a competent junior developer who never sleeps and works for free.`
+  },
+  {
+    id: "act5-pi",
+    title: "Act 5 — The Pi Coding Agent",
+    text: `Pi is a minimal terminal coding harness built by Mario Zechner. Where Claude Code gives you a curated experience, Pi gives you a blank canvas: if you want the agent to do something new, ask the agent to extend itself. It's layered TypeScript packages: pi-ai for LLM communication, pi-agent-core for the agent loop, pi-coding-agent for the full CLI, and pi-tui for terminal UI. You connect it to Qwen 3.5 through Pi's model registry. Sessions are trees, not linear histories. You can branch off to fix something, then rewind. This matters for local models because context windows are precious. Pi also powers OpenClaw, a multi-channel AI assistant that runs across WhatsApp, Telegram, Discord, Slack, and more.`
+  },
+  {
+    id: "act6-apple",
+    title: "Act 6 — Competition on Apple Silicon",
+    text: `You've decided to run a local coding agent on Apple Silicon. Who competes with Qwen 3.5? At 32GB, the sweet spot, the daily driver is the Qwen 3.5 35B-A3B. Only 3 billion active parameters means it's fast, but 35 billion total means it's smart. The main challenger is GLM-4.7 Flash, which won agentic coding challenges with a 30.1 Intelligence Index. Devstral from Mistral at 24B is another serious contender. At 48GB and beyond, the 122B-A10B delivers frontier-adjacent performance. On a Mac Studio with 192GB, you can run the full 397B-A17B locally. Practical note: LM Studio and llama-server tend to outperform Ollama for production agent work. And Apple's MLX framework delivers 20 to 30 percent better performance than llama.cpp.`
+  },
+  {
+    id: "outro",
+    title: "Outro",
+    text: `So where does this leave us? Three years ago, running a frontier-capable AI model locally was a fantasy. Today, you can pull a single command, wire it into Claude Code or Pi, and have a genuinely useful coding agent running on your laptop for zero cost. Qwen 3.5 arguably made that real for most developers. The MoE architecture means frontier-class intelligence at a fraction of the compute. The Apache 2.0 license means you own your stack. Is it as good as Claude Opus 4.6 on the hardest tasks? No, not yet. But for day-to-day coding — building features, fixing bugs, writing tests — it's shockingly competent. And it's free, private, and runs on a Mac Mini. That's a different world than a year ago. Thanks for listening.`
+  },
+];
+
+
+// ══════════════════════════════════════
+// STATE
+// ══════════════════════════════════════
+let tts = null;
+let audioCtx = null;
+let audioBuffers = {};   // sectionId -> AudioBuffer
+let currentSource = null;
+let currentSection = null;
+let isPlaying = false;
+let isGenerating = false;
+
+const $ = (sel) => document.querySelector(sel);
+const statusDot = $('#statusDot');
+const statusText = $('#statusText');
+const progressBar = $('#progressBar');
+const progressInner = $('#progressInner');
+const loadBtn = $('#loadBtn');
+const sectionList = $('#sectionList');
+const playerBar = $('#playerBar');
+const playPauseBtn = $('#playPauseBtn');
+const playerTitle = $('#playerTitle');
+const playerSub = $('#playerSub');
+const downloadBtn = $('#downloadBtn');
+const downloadMp4Btn = $('#downloadMp4Btn');
+const generateAllBtn = $('#generateAllBtn');
+const speedSlider = $('#speedSlider');
+const speedValue = $('#speedValue');
+
+// ══════════════════════════════════════
+// RENDER SECTIONS
+// ══════════════════════════════════════
+function renderSections() {
+  sectionList.innerHTML = '';
+  SECTIONS.forEach((sec, i) => {
+    const words = sec.text.split(/\s+/).length;
+    const mins = Math.ceil(words / 150); // ~150 wpm speaking rate
+    const div = document.createElement('div');
+    div.className = 'section-item';
+    div.id = `section-${sec.id}`;
+    div.innerHTML = `
+      <div class="section-num">${String(i + 1).padStart(2, '0')}</div>
+      <div class="section-info">
+        <div class="section-title">${sec.title}</div>
+        <div class="section-meta" id="meta-${sec.id}">${words} words · ~${mins} min</div>
+      </div>
+      <div class="section-status" id="status-${sec.id}"></div>
+      <div class="section-actions">
+        <button class="btn-icon" title="Generate & Play" data-action="generate" data-id="${sec.id}" disabled>⚡</button>
+        <button class="btn-icon" title="Play" data-action="play" data-id="${sec.id}" disabled>▶</button>
+      </div>
+    `;
+    sectionList.appendChild(div);
+  });
+}
+renderSections();
+
+// ══════════════════════════════════════
+// SPEED SLIDER
+// ══════════════════════════════════════
+speedSlider.addEventListener('input', () => {
+  speedValue.textContent = parseFloat(speedSlider.value).toFixed(1) + '×';
+});
+
+// ══════════════════════════════════════
+// WAIT FOR KOKORO-JS MODULE
+// ══════════════════════════════════════
+function onKokoroReady() {
+  statusDot.className = 'status-dot';
+  statusText.textContent = 'Kokoro library loaded. Click "Load Model" to download the 82M TTS model (~150MB, cached after first load).';
+  loadBtn.disabled = false;
+}
+
+if (window.KokoroTTS) {
+  onKokoroReady();
+} else {
+  window.addEventListener("kokoro-ready", onKokoroReady);
+  // Timeout fallback
+  setTimeout(() => {
+    if (!window.KokoroTTS) {
+      statusDot.className = 'status-dot error';
+      statusText.textContent = 'Failed to load Kokoro library. Make sure you are using Chrome/Edge and opened this file from a web server or localhost (not file://).';
+    }
+  }, 15000);
+}
+
+// ══════════════════════════════════════
+// LOAD MODEL
+// ══════════════════════════════════════
+loadBtn.addEventListener('click', async () => {
+  loadBtn.disabled = true;
+  statusDot.className = 'status-dot loading';
+  statusText.textContent = 'Downloading Kokoro 82M ONNX model… (first time only, ~150MB)';
+  progressBar.classList.add('visible');
+
+  try {
+    // Detect WebGPU
+    let device = "wasm";
+    let dtype = "q8";
+    if (navigator.gpu) {
+      try {
+        const adapter = await navigator.gpu.requestAdapter();
+        if (adapter) {
+          device = "webgpu";
+          dtype = "fp32";
+          statusText.textContent += ' [WebGPU detected]';
+        }
+      } catch(e) {}
+    }
+
+    tts = await window.KokoroTTS.from_pretrained(
+      "onnx-community/Kokoro-82M-v1.0-ONNX",
+      {
+        dtype,
+        device,
+        progress_callback: (progress) => {
+          if (progress.status === 'progress' && progress.total) {
+            const pct = Math.round((progress.loaded / progress.total) * 100);
+            progressInner.style.width = pct + '%';
+            statusText.textContent = `Downloading: ${pct}% (${(progress.loaded / 1e6).toFixed(1)}MB / ${(progress.total / 1e6).toFixed(1)}MB)`;
+          } else if (progress.status === 'done') {
+            progressInner.style.width = '100%';
+          }
+        }
+      }
+    );
+
+    statusDot.className = 'status-dot ready';
+    statusText.textContent = `Model loaded (${device.toUpperCase()} backend). Select a section and click ⚡ to generate audio.`;
+    progressBar.classList.remove('visible');
+    playerBar.classList.add('visible');
+
+    // Enable generate buttons
+    document.querySelectorAll('[data-action="generate"]').forEach(btn => btn.disabled = false);
+    generateAllBtn.disabled = false;
+
+  } catch (err) {
+    statusDot.className = 'status-dot error';
+    statusText.textContent = `Error loading model: ${err.message}`;
+    progressBar.classList.remove('visible');
+    loadBtn.disabled = false;
+    console.error(err);
+  }
+});
+
+// ══════════════════════════════════════
+// GENERATE AUDIO FOR A SECTION
+// ══════════════════════════════════════
+async function generateSection(sectionId) {
+  if (!tts || isGenerating) return;
+  isGenerating = true;
+
+  const sec = SECTIONS.find(s => s.id === sectionId);
+  const el = $(`#section-${sectionId}`);
+  const statusEl = $(`#status-${sectionId}`);
+
+  el.className = 'section-item generating';
+  statusEl.textContent = 'GENERATING…';
+
+  const voice = $('#voiceSelect').value;
+  const speed = parseFloat(speedSlider.value);
+
+  try {
+    const audio = await tts.generate(sec.text, { voice, speed });
+
+    // Convert to AudioBuffer for playback
+    if (!audioCtx) audioCtx = new AudioContext({ sampleRate: 24000 });
+    const wavData = audio.toWav();
+    const arrayBuf = wavData.buffer ? wavData.buffer : wavData;
+    const decoded = await audioCtx.decodeAudioData(arrayBuf.slice(0));
+
+    audioBuffers[sectionId] = { buffer: decoded, wav: wavData };
+
+    el.className = 'section-item generated';
+    statusEl.textContent = 'READY';
+
+    // Show actual duration
+    const dur = decoded.duration;
+    const mm = Math.floor(dur / 60);
+    const ss = String(Math.floor(dur % 60)).padStart(2, '0');
+    const metaEl = $(`#meta-${sectionId}`);
+    if (metaEl) metaEl.textContent = metaEl.textContent.replace(/~\d+ min/, `${mm}:${ss}`);
+
+    // Enable play button
+    const playBtn = el.querySelector('[data-action="play"]');
+    if (playBtn) playBtn.disabled = false;
+
+    // Auto-play
+    playSection(sectionId);
+
+  } catch (err) {
+    el.className = 'section-item error';
+    statusEl.textContent = 'ERROR';
+    console.error(`Error generating section ${sectionId}:`, err);
+  }
+
+  isGenerating = false;
+}
+
+// ══════════════════════════════════════
+// PLAY / PAUSE
+// ══════════════════════════════════════
+function playSection(sectionId) {
+  if (!audioBuffers[sectionId]) return;
+
+  // Stop current
+  if (currentSource) {
+    try { currentSource.stop(); } catch(e) {}
+  }
+
+  // Clear active state
+  document.querySelectorAll('.section-item.active').forEach(el => el.classList.remove('active'));
+
+  const sec = SECTIONS.find(s => s.id === sectionId);
+  const el = $(`#section-${sectionId}`);
+  el.classList.add('active');
+
+  currentSection = sectionId;
+  playerTitle.textContent = sec.title;
+  playerSub.textContent = 'PLAYING';
+  playPauseBtn.textContent = '⏸';
+  isPlaying = true;
+
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+
+  currentSource = audioCtx.createBufferSource();
+  currentSource.buffer = audioBuffers[sectionId].buffer;
+  currentSource.connect(audioCtx.destination);
+  currentSource.start();
+
+  currentSource.onended = () => {
+    isPlaying = false;
+    playPauseBtn.textContent = '▶';
+    playerSub.textContent = 'FINISHED';
+
+    // Auto-advance to next section if it has audio
+    const idx = SECTIONS.findIndex(s => s.id === sectionId);
+    if (idx < SECTIONS.length - 1) {
+      const nextId = SECTIONS[idx + 1].id;
+      if (audioBuffers[nextId]) {
+        playSection(nextId);
+      } else {
+        playerSub.textContent = 'ENDED — Generate next section with ⚡';
+      }
+    }
+  };
+}
+
+function togglePlayPause() {
+  if (!currentSection || !audioBuffers[currentSection]) return;
+
+  if (isPlaying) {
+    audioCtx.suspend();
+    isPlaying = false;
+    playPauseBtn.textContent = '▶';
+    playerSub.textContent = 'PAUSED';
+  } else {
+    audioCtx.resume();
+    isPlaying = true;
+    playPauseBtn.textContent = '⏸';
+    playerSub.textContent = 'PLAYING';
+  }
+}
+
+// ══════════════════════════════════════
+// DOWNLOAD
+// ══════════════════════════════════════
+function downloadCurrent() {
+  if (!currentSection || !audioBuffers[currentSection]) return;
+  const wav = audioBuffers[currentSection].wav;
+  const blob = new Blob([wav], { type: 'audio/wav' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `qwen-podcast-${currentSection}.wav`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ══════════════════════════════════════
+// DOWNLOAD MP4
+// ══════════════════════════════════════
+async function downloadCurrentMP4() {
+  if (!currentSection || !audioBuffers[currentSection]) return;
+
+  const buffer = audioBuffers[currentSection].buffer;
+  const mimeType = MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : 'audio/webm';
+  const ext = mimeType === 'audio/mp4' ? 'mp4' : 'webm';
+
+  downloadMp4Btn.disabled = true;
+  downloadMp4Btn.textContent = '⏳ Encoding…';
+
+  const recordCtx = new AudioContext({ sampleRate: buffer.sampleRate });
+  const dest = recordCtx.createMediaStreamDestination();
+  const recorder = new MediaRecorder(dest.stream, { mimeType });
+  const chunks = [];
+
+  recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+  recorder.onstop = () => {
+    const blob = new Blob(chunks, { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `qwen-podcast-${currentSection}.${ext}`;
+    a.click();
+    URL.revokeObjectURL(url);
+    recordCtx.close();
+    downloadMp4Btn.disabled = false;
+    downloadMp4Btn.textContent = '↓ MP4';
+  };
+
+  const source = recordCtx.createBufferSource();
+  source.buffer = buffer;
+  source.connect(dest);
+  source.onended = () => recorder.stop();
+  recorder.start();
+  source.start();
+}
+
+// ══════════════════════════════════════
+// MARKDOWN PARSER
+// ══════════════════════════════════════
+function parseMarkdown(text) {
+  const blocks = text.split(/\n---\n/);
+
+  // Block 0: episode metadata
+  const meta = blocks[0];
+  const titleMatch = meta.match(/^#\s+(.+)$/m);
+  const subtitleMatch = meta.match(/^##\s+(.+)$/m);
+  const title = titleMatch ? titleMatch[1].trim() : 'Podcast';
+  const subtitle = subtitleMatch ? subtitleMatch[1].trim() : '';
+
+  const sections = [];
+  for (let i = 1; i < blocks.length; i++) {
+    const block = blocks[i].trim();
+    if (!block) continue;
+
+    // Extract section title from ## heading or **[MARKER]** line
+    let sectionTitle = '';
+    const headingMatch = block.match(/^##\s+(.+)$/m);
+    if (headingMatch) {
+      sectionTitle = headingMatch[1].trim();
+    } else {
+      const markerMatch = block.match(/\*\*\[([^\]]+)\]\*\*/);
+      if (markerMatch) {
+        const t = markerMatch[1];
+        if (/intro/i.test(t)) sectionTitle = 'Introduction';
+        else if (/outro/i.test(t)) sectionTitle = 'Outro';
+        else sectionTitle = t.replace(/\s*[—–-].*$/, '').trim();
+      }
+    }
+    if (!sectionTitle) continue; // skip trailing metadata blocks
+
+    const sectionText = block
+      .replace(/^##.+$/gm, '')                        // headings
+      .replace(/```[\s\S]*?```/g, '')                  // code blocks
+      .replace(/^\s*\*\*\[[^\]]*\]\*\*\s*$/gm, '')    // stage direction lines
+      .replace(/\*\*HOST:\*\*\s*/g, '')                // HOST: labels
+      .replace(/\*\*([^*\n]+)\*\*/g, '$1')            // bold markers
+      .replace(/^\*[^*\n].*$/gm, '')                   // *italic metadata* lines
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+
+    if (!sectionText) continue;
+
+    const id = sectionTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').substring(0, 40);
+    sections.push({ id, title: sectionTitle, text: sectionText });
+  }
+
+  return { title, subtitle, sections };
+}
+
+function applyScript({ title, subtitle, sections }) {
+  // Update header
+  $('#episodeTitle').textContent = title;
+  $('#episodeSubtitle').textContent = subtitle;
+  $('#episodeKicker').textContent = '';
+
+  // Reset playback state
+  if (currentSource) { try { currentSource.stop(); } catch(e) {} currentSource = null; }
+  isPlaying = false;
+  currentSection = null;
+  audioBuffers = {};
+  isGenerating = false;
+  playerBar.classList.remove('visible');
+  playPauseBtn.textContent = '▶';
+
+  SECTIONS = sections;
+  renderSections();
+
+  if (tts) {
+    document.querySelectorAll('[data-action="generate"]').forEach(btn => btn.disabled = false);
+    generateAllBtn.disabled = false;
+  }
+
+  statusDot.className = 'status-dot ready';
+  statusText.textContent = `Loaded "${title}" — ${sections.length} sections ready.`;
+}
+
+// ══════════════════════════════════════
+// DRAG & DROP
+// ══════════════════════════════════════
+const dropOverlay = $('#dropOverlay');
+let dragCounter = 0;
+
+document.addEventListener('dragenter', (e) => {
+  if ([...e.dataTransfer.items].some(i => i.kind === 'file')) {
+    dragCounter++;
+    dropOverlay.classList.add('active');
+  }
+});
+
+document.addEventListener('dragleave', () => {
+  dragCounter--;
+  if (dragCounter <= 0) { dragCounter = 0; dropOverlay.classList.remove('active'); }
+});
+
+document.addEventListener('dragover', (e) => e.preventDefault());
+
+document.addEventListener('drop', (e) => {
+  e.preventDefault();
+  dragCounter = 0;
+  dropOverlay.classList.remove('active');
+  const file = e.dataTransfer.files[0];
+  if (!file || !file.name.endsWith('.md')) {
+    statusDot.className = 'status-dot error';
+    statusText.textContent = 'Please drop a .md markdown file.';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    try {
+      const parsed = parseMarkdown(ev.target.result);
+      if (!parsed.sections.length) throw new Error('No sections found — check markdown format.');
+      applyScript(parsed);
+    } catch (err) {
+      statusDot.className = 'status-dot error';
+      statusText.textContent = `Parse error: ${err.message}`;
+    }
+  };
+  reader.readAsText(file);
+});
+
+// ══════════════════════════════════════
+// GENERATE ALL
+// ══════════════════════════════════════
+async function generateAll() {
+  if (!tts || isGenerating) return;
+  generateAllBtn.disabled = true;
+  const total = SECTIONS.length;
+  for (let i = 0; i < total; i++) {
+    const sec = SECTIONS[i];
+    if (audioBuffers[sec.id]) continue; // skip already generated
+    generateAllBtn.textContent = `⏳ ${i + 1}/${total}`;
+    await generateSection(sec.id);
+  }
+  generateAllBtn.textContent = '✓ All Done';
+  setTimeout(() => {
+    generateAllBtn.textContent = '⚡ Generate All';
+    generateAllBtn.disabled = false;
+  }, 2000);
+}
+
+// ══════════════════════════════════════
+// EVENT LISTENERS
+// ══════════════════════════════════════
+sectionList.addEventListener('click', (e) => {
+  const btn = e.target.closest('[data-action]');
+  if (!btn) {
+    // Click on the section row itself — jump to it if audio exists
+    const item = e.target.closest('.section-item');
+    if (item) {
+      const id = item.id.replace('section-', '');
+      if (audioBuffers[id]) playSection(id);
+    }
+    return;
+  }
+  if (btn.disabled) return;
+
+  const action = btn.dataset.action;
+  const id = btn.dataset.id;
+
+  if (action === 'generate') generateSection(id);
+  if (action === 'play') playSection(id);
+});
+
+playPauseBtn.addEventListener('click', togglePlayPause);
+downloadBtn.addEventListener('click', downloadCurrent);
+downloadMp4Btn.addEventListener('click', downloadCurrentMP4);
+generateAllBtn.addEventListener('click', generateAll);
+
+// Keyboard shortcuts
+document.addEventListener('keydown', (e) => {
+  if (e.code === 'Space' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'SELECT') {
+    e.preventDefault();
+    togglePlayPause();
+  }
+});
+</script>
+
+</body>
+</html>
