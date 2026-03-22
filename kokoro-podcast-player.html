@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>The Qwen Revolution — AI Podcast Player</title>
 
+<!-- lamejs MP3 encoder -->
+<script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js"></script>
+
 <!-- Kokoro TTS via jsdelivr -->
 <script type="module">
 import { KokoroTTS, TextSplitterStream } from "https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/+esm";
@@ -586,7 +589,7 @@ window.dispatchEvent(new Event("kokoro-ready"));
   </div>
   <div class="player-downloads">
     <button class="player-download" id="downloadBtn" title="Download WAV">↓ WAV</button>
-    <button class="player-download" id="downloadMp4Btn" title="Download MP4">↓ MP4</button>
+    <button class="player-download" id="downloadMp4Btn" title="Download MP3">↓ MP3</button>
   </div>
 </div>
 
@@ -917,58 +920,111 @@ function togglePlayPause() {
 }
 
 // ══════════════════════════════════════
-// DOWNLOAD
+// DOWNLOAD HELPERS
 // ══════════════════════════════════════
-function downloadCurrent() {
-  if (!currentSection || !audioBuffers[currentSection]) return;
-  const wav = audioBuffers[currentSection].wav;
+function mergeAudioBuffers(buffers) {
+  const sampleRate = buffers[0].sampleRate;
+  const numChannels = buffers[0].numberOfChannels;
+  const totalLength = buffers.reduce((n, b) => n + b.length, 0);
+  const merged = new AudioContext({ sampleRate }).createBuffer(numChannels, totalLength, sampleRate);
+  let offset = 0;
+  for (const buf of buffers) {
+    for (let ch = 0; ch < numChannels; ch++) {
+      merged.getChannelData(ch).set(buf.getChannelData(ch), offset);
+    }
+    offset += buf.length;
+  }
+  return merged;
+}
+
+function audioBufferToWAV(buffer) {
+  const numChannels = buffer.numberOfChannels;
+  const sampleRate = buffer.sampleRate;
+  const length = buffer.length;
+  const ab = new ArrayBuffer(44 + length * numChannels * 2);
+  const view = new DataView(ab);
+  const str = (off, s) => [...s].forEach((c, i) => view.setUint8(off + i, c.charCodeAt(0)));
+  str(0, 'RIFF'); view.setUint32(4, 36 + length * numChannels * 2, true);
+  str(8, 'WAVE'); str(12, 'fmt ');
+  view.setUint32(16, 16, true); view.setUint16(20, 1, true);
+  view.setUint16(22, numChannels, true); view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * numChannels * 2, true);
+  view.setUint16(32, numChannels * 2, true); view.setUint16(34, 16, true);
+  str(36, 'data'); view.setUint32(40, length * numChannels * 2, true);
+  let off = 44;
+  for (let i = 0; i < length; i++) {
+    for (let ch = 0; ch < numChannels; ch++) {
+      const s = buffer.getChannelData(ch)[i];
+      view.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+      off += 2;
+    }
+  }
+  return new Uint8Array(ab);
+}
+
+function generatedBuffers() {
+  return SECTIONS.filter(s => audioBuffers[s.id]).map(s => audioBuffers[s.id].buffer);
+}
+
+// ══════════════════════════════════════
+// DOWNLOAD WAV
+// ══════════════════════════════════════
+function downloadAllWAV() {
+  const buffers = generatedBuffers();
+  if (!buffers.length) return;
+  const merged = mergeAudioBuffers(buffers);
+  const wav = audioBufferToWAV(merged);
   const blob = new Blob([wav], { type: 'audio/wav' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `qwen-podcast-${currentSection}.wav`;
+  a.download = 'podcast.wav';
   a.click();
   URL.revokeObjectURL(url);
 }
 
 // ══════════════════════════════════════
-// DOWNLOAD MP4
+// DOWNLOAD MP3 (lamejs)
 // ══════════════════════════════════════
-async function downloadCurrentMP4() {
-  if (!currentSection || !audioBuffers[currentSection]) return;
-
-  const buffer = audioBuffers[currentSection].buffer;
-  const mimeType = MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : 'audio/webm';
-  const ext = mimeType === 'audio/mp4' ? 'mp4' : 'webm';
+function downloadAllMP3() {
+  const buffers = generatedBuffers();
+  if (!buffers.length) return;
 
   downloadMp4Btn.disabled = true;
   downloadMp4Btn.textContent = '⏳ Encoding…';
 
-  const recordCtx = new AudioContext({ sampleRate: buffer.sampleRate });
-  const dest = recordCtx.createMediaStreamDestination();
-  const recorder = new MediaRecorder(dest.stream, { mimeType });
-  const chunks = [];
+  // Encode asynchronously via setTimeout to let the UI update first
+  setTimeout(() => {
+    const merged = mergeAudioBuffers(buffers);
+    const pcm = merged.getChannelData(0); // mono Float32Array
+    const sampleRate = merged.sampleRate;
+    const encoder = new lamejs.Mp3Encoder(1, sampleRate, 128);
+    const blockSize = 1152;
+    const chunks = [];
 
-  recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
-  recorder.onstop = () => {
-    const blob = new Blob(chunks, { type: mimeType });
+    for (let i = 0; i < pcm.length; i += blockSize) {
+      const slice = pcm.subarray(i, i + blockSize);
+      const int16 = new Int16Array(slice.length);
+      for (let j = 0; j < slice.length; j++) {
+        int16[j] = slice[j] < 0 ? slice[j] * 0x8000 : slice[j] * 0x7FFF;
+      }
+      const encoded = encoder.encodeBuffer(int16);
+      if (encoded.length > 0) chunks.push(new Uint8Array(encoded));
+    }
+    const flushed = encoder.flush();
+    if (flushed.length > 0) chunks.push(new Uint8Array(flushed));
+
+    const blob = new Blob(chunks, { type: 'audio/mp3' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `qwen-podcast-${currentSection}.${ext}`;
+    a.download = 'podcast.mp3';
     a.click();
     URL.revokeObjectURL(url);
-    recordCtx.close();
-    downloadMp4Btn.disabled = false;
-    downloadMp4Btn.textContent = '↓ MP4';
-  };
 
-  const source = recordCtx.createBufferSource();
-  source.buffer = buffer;
-  source.connect(dest);
-  source.onended = () => recorder.stop();
-  recorder.start();
-  source.start();
+    downloadMp4Btn.disabled = false;
+    downloadMp4Btn.textContent = '↓ MP3';
+  }, 0);
 }
 
 // ══════════════════════════════════════
@@ -1036,7 +1092,7 @@ function applyScript({ title, subtitle, sections }) {
   currentSection = null;
   audioBuffers = {};
   isGenerating = false;
-  playerBar.classList.remove('visible');
+  if (!tts) playerBar.classList.remove('visible');
   playPauseBtn.textContent = '▶';
 
   SECTIONS = sections;
@@ -1139,8 +1195,8 @@ sectionList.addEventListener('click', (e) => {
 });
 
 playPauseBtn.addEventListener('click', togglePlayPause);
-downloadBtn.addEventListener('click', downloadCurrent);
-downloadMp4Btn.addEventListener('click', downloadCurrentMP4);
+downloadBtn.addEventListener('click', downloadAllWAV);
+downloadMp4Btn.addEventListener('click', downloadAllMP3);
 generateAllBtn.addEventListener('click', generateAll);
 
 // Keyboard shortcuts
