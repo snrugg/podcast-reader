@@ -101,3 +101,17 @@ The parser removes the following automatically so they are not spoken aloud:
 |---|---|
 | `# Episode Title` | Main heading |
 | `## Tagline subtitle` | Subtitle |
+
+---
+
+## License
+
+MIT © 2026 Nathan Jones — see [LICENSE](LICENSE).
+
+### Third-party dependencies
+
+| Library | License | Notes |
+|---|---|---|
+| [kokoro-js](https://github.com/hexgrad/kokoro) | Apache 2.0 | TTS model runtime |
+| [Kokoro-82M weights](https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX) | Apache 2.0 | Model weights via HuggingFace |
+| [lamejs](https://github.com/zhuker/lamejs) | LGPL v3 | MP3 encoding; loaded via CDN, not bundled |
