@@ -435,6 +435,127 @@ window.dispatchEvent(new Event("kokoro-ready"));
   .btn-generate-all:hover:not(:disabled) { background: var(--amber); }
   .btn-generate-all:disabled { opacity: 0.4; cursor: not-allowed; }
 
+  /* ── USAGE PANEL ── */
+  .usage-panel {
+    background: var(--bg-panel);
+    border: 1px solid #292524;
+    border-radius: var(--radius);
+    padding: 20px 24px;
+    margin-bottom: 24px;
+  }
+  .usage-panel-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--amber);
+    margin-bottom: 14px;
+  }
+  .usage-steps {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .usage-step {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    font-size: 14px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+  }
+  .step-num {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--amber);
+    background: var(--amber-glow);
+    border: 1px solid var(--amber-dim);
+    border-radius: 4px;
+    padding: 1px 6px;
+    flex-shrink: 0;
+  }
+  .usage-step strong { color: var(--text-primary); font-weight: 600; }
+  kbd {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    background: var(--bg-card);
+    border: 1px solid #3f3a36;
+    border-radius: 4px;
+    padding: 1px 6px;
+    color: var(--text-secondary);
+  }
+  .drag-hint {
+    margin-top: 12px;
+    padding: 10px 14px;
+    border: 1px dashed var(--amber-dim);
+    border-radius: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-muted);
+    letter-spacing: 1px;
+    text-align: center;
+  }
+
+  /* ── PROMPT BOX ── */
+  .prompt-section {
+    margin-top: 16px;
+    padding: 24px;
+    background: var(--bg-panel);
+    border: 1px solid #292524;
+    border-radius: var(--radius);
+  }
+  .prompt-section h2 {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--amber);
+    margin-bottom: 8px;
+  }
+  .prompt-section p {
+    font-size: 14px;
+    color: var(--text-secondary);
+    margin-bottom: 16px;
+  }
+  .prompt-box {
+    position: relative;
+    background: var(--bg-deep);
+    border: 1px solid #3f3a36;
+    border-radius: 8px;
+    padding: 16px;
+    padding-bottom: 48px;
+  }
+  .prompt-box pre {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--text-secondary);
+    line-height: 1.7;
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin: 0;
+    max-height: 220px;
+    overflow-y: auto;
+  }
+  .btn-copy-prompt {
+    position: absolute;
+    bottom: 12px;
+    right: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--bg-deep);
+    background: var(--amber);
+    border: none;
+    border-radius: 6px;
+    padding: 6px 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn-copy-prompt:hover { background: #fbbf24; }
+  .btn-copy-prompt.copied { background: var(--green); }
+
   /* ── DRAG OVERLAY ── */
   .drop-overlay {
     position: fixed;
@@ -518,6 +639,19 @@ window.dispatchEvent(new Event("kokoro-ready"));
     <div class="subtitle" id="episodeSubtitle">From Alibaba's Lab to Your Laptop — A Podcast on Local LLM Coding Agents</div>
   </div>
 
+  <!-- Usage Instructions -->
+  <div class="usage-panel">
+    <div class="usage-panel-title">How to Use</div>
+    <div class="usage-steps">
+      <div class="usage-step"><span class="step-num">1</span> Click <strong>Load Model</strong> — downloads ~150MB of TTS weights, cached after first load</div>
+      <div class="usage-step"><span class="step-num">2</span> <strong>Drag a .md script file</strong> onto this page to load your podcast script</div>
+      <div class="usage-step"><span class="step-num">3</span> Click <strong>⚡</strong> on any section to generate audio, or use <strong>⚡ Generate All</strong> to queue all sections</div>
+      <div class="usage-step"><span class="step-num">4</span> Click any generated section row to jump to it — <kbd>Space</kbd> to play/pause</div>
+      <div class="usage-step"><span class="step-num">5</span> Download the full episode as <strong>WAV</strong> or <strong>MP3</strong> from the player bar</div>
+    </div>
+    <div class="drag-hint">📄 Drop a .md file anywhere on this page to load a script</div>
+  </div>
+
   <!-- Status Panel -->
   <div class="status-panel">
     <div class="status-row">
@@ -577,6 +711,61 @@ window.dispatchEvent(new Event("kokoro-ready"));
     <p style="margin-top: 12px; color: var(--text-muted); font-size: 12px;">
       Requires a modern browser (Chrome/Edge recommended for WebGPU). First load downloads ~150MB of model weights. Subsequent visits use cached weights.
     </p>
+  </div>
+
+  <!-- Generate Script Prompt -->
+  <div class="prompt-section">
+    <h2>Generate a Script with AI</h2>
+    <p>Paste this prompt into any LLM to produce a podcast script in the correct format:</p>
+    <div class="prompt-box">
+      <pre id="llmPrompt">Write a podcast script on the topic: [YOUR TOPIC HERE]
+
+Format the output as Markdown using this exact structure:
+
+# [Episode Title]
+
+## [One-line tagline or subtitle describing the episode]
+
+---
+
+**[INTRO — brief description of any music/atmosphere]**
+
+**HOST:** [Opening monologue — welcome the listener, introduce the topic, preview what will be covered.]
+
+---
+
+## ACT ONE: [Section Title]
+
+**HOST:** [Spoken content for this section. Write in a natural, conversational podcast voice — not bullet points. Use full paragraphs. Aim for 200–400 words per section.]
+
+**[beat]**
+
+[Continue HOST paragraphs as needed. Use **[beat]** or **[transition beat]** on its own line to mark natural pauses.]
+
+---
+
+[Continue with as many ACT sections as needed. Typical episodes have 5–8 acts.]
+
+---
+
+**[OUTRO]**
+
+**HOST:** [Closing thoughts. Summarize key takeaways, invite listener engagement, sign off.]
+
+---
+
+*Script length: approximately [X] minutes at podcast reading pace.*
+
+Rules:
+- Every spoken line must start with **HOST:** on the same line
+- Stage directions go on their own line wrapped in **[brackets]** — they are stripped before TTS
+- Separate every section with a line containing only ---
+- Do NOT include code blocks, tables, or bullet lists — spoken audio only
+- Do NOT include multiple speakers — single host only
+- Each ACT heading should be descriptive enough to serve as a chapter title
+- Aim for 150–300 words per ACT section (~1–2 minutes of audio each)</pre>
+      <button class="btn-copy-prompt" id="copyPromptBtn">Copy Prompt</button>
+    </div>
   </div>
 </div>
 
@@ -1134,6 +1323,14 @@ sectionList.addEventListener('click', (e) => {
 
   if (action === 'generate') generateSection(id);
   if (action === 'play') playSection(id);
+});
+
+$('#copyPromptBtn').addEventListener('click', async () => {
+  const btn = $('#copyPromptBtn');
+  await navigator.clipboard.writeText($('#llmPrompt').textContent.trim());
+  btn.textContent = 'Copied!';
+  btn.classList.add('copied');
+  setTimeout(() => { btn.textContent = 'Copy Prompt'; btn.classList.remove('copied'); }, 2000);
 });
 
 playPauseBtn.addEventListener('click', togglePlayPause);
